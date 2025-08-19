@@ -1,5 +1,9 @@
 import express from "express";
 import cors from "cors";
+import yts from "yt-search";
+import ytdl from "ytdl-core";
+import axios from "axios";
+import * as cheerio from "cheerio";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -8,23 +12,27 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Root route
+// 🟢 Root route / Heartbeat
 app.get("/", (req, res) => {
   res.json({
-    status: "✅ API is running",
-    services: [
-      "/music/search?q=",
-      "/music/download?id=",
-      "/ai/chat",
-      "/scraper/news",
-      "/movies/stream"
-    ],
+    status: true,
+    developer: "Wanga",
+    project: "Tevona API",
+    message: "🚀 Tevona backend is live and operational",
+    uptime: process.uptime().toFixed(0) + "s",
+    timestamp: new Date().toISOString(),
+    version: "1.0.0",
+    docs: "https://github.com/Wanga-tracker/tevona-api",
+    services: {
+      music: ["/music/search?q=", "/music/download?id="],
+      ai: ["/ai/chat"],
+      scraping: ["/scraper/news"],
+      movies: ["/movies/stream"]
+    }
   });
 });
 
-/* =============== MUSIC ROUTES =============== */
-import yts from "yt-search";
-import ytdl from "ytdl-core";
+/* =============== 🎶 MUSIC ROUTES =============== */
 
 // Search music
 app.get("/music/search", async (req, res) => {
@@ -33,7 +41,7 @@ app.get("/music/search", async (req, res) => {
     if (!query) return res.status(400).json({ error: "Missing query" });
 
     const results = await yts(query);
-    res.json(results.videos.slice(0, 10)); // send top 10 results
+    res.json(results.videos.slice(0, 10)); // return top 10
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -53,32 +61,37 @@ app.get("/music/download", async (req, res) => {
   }
 });
 
-/* =============== AI ROUTES (stub) =============== */
+/* =============== 🤖 AI ROUTES (stub) =============== */
 app.post("/ai/chat", async (req, res) => {
   const { message } = req.body;
   // TODO: Plug into GPT4All / LLaMA later
-  res.json({ reply: `Echo: ${message}` });
+  res.json({
+    status: true,
+    input: message,
+    reply: `Echo: ${message}`
+  });
 });
 
-/* =============== SCRAPER ROUTES (stub) =============== */
-import axios from "axios";
-import * as cheerio from "cheerio";
-
+/* =============== 📰 SCRAPER ROUTES (stub) =============== */
 app.get("/scraper/news", async (req, res) => {
   try {
     const { data } = await axios.get("https://news.ycombinator.com/");
     const $ = cheerio.load(data);
     const titles = [];
-    $("a.storylink").each((_, el) => titles.push($(el).text()));
-    res.json(titles);
+    $("a.titleline").each((_, el) => titles.push($(el).text())); // updated selector
+    res.json({ count: titles.length, articles: titles });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-/* =============== MOVIES (stub) =============== */
+/* =============== 🎬 MOVIES (stub) =============== */
 app.get("/movies/stream", (req, res) => {
-  res.json({ msg: "🎬 Movie streaming route placeholder" });
+  res.json({
+    status: true,
+    msg: "🎬 Movie streaming route placeholder",
+    next_step: "Integrate torrent/stream service"
+  });
 });
 
 // Start server
