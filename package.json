@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Music search and downloader API",
   "main": "index.cjs",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.cjs",
     "dev": "nodemon index.cjs"
