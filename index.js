@@ -1,73 +1,53 @@
+// index.js
 const express = require("express");
-const cors = require("cors");
-const ytSearch = require("yt-search");
 const crypto = require("crypto");
 
 const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 3000;
 
-// ✅ Helper: make md5 hash
-function md5(str) {
-  return crypto.createHash("md5").update(str).digest("hex");
+// Utility to hash
+function genHash(algorithm, input) {
+  return crypto.createHash(algorithm).update(input).digest("hex");
 }
 
-/**
- * ROUTE: Search YouTube videos
- * Example: /api/search?q=alan+walker
- */
-app.get("/api/search", async (req, res) => {
-  const q = req.query.q;
-  if (!q) {
-    return res.status(400).json({ error: "Missing ?q=" });
-  }
+app.get("/api/test-hash/:videoId", (req, res) => {
+  const videoId = req.params.videoId;
 
-  try {
-    const result = await ytSearch(q);
-    const videos = result.videos.slice(0, 10).map((v) => ({
-      id: v.videoId,
-      title: v.title,
-      duration: v.timestamp,
-      views: v.views,
-      channel: v.author?.name,
-      thumbnail: v.thumbnail,
-      url: `https://www.youtube.com/watch?v=${v.videoId}`,
-    }));
+  // Try different combinations
+  const attempts = {
+    md5_id: genHash("md5", videoId),
+    sha1_id: genHash("sha1", videoId),
+    sha256_id: genHash("sha256", videoId),
 
-    res.json({ status: 200, result: videos });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    // Try reversing videoId
+    md5_rev: genHash("md5", videoId.split("").reverse().join("")),
+    sha1_rev: genHash("sha1", videoId.split("").reverse().join("")),
+    sha256_rev: genHash("sha256", videoId.split("").reverse().join("")),
+
+    // Try double-hash
+    md5_md5: genHash("md5", genHash("md5", videoId)),
+    sha1_sha1: genHash("sha1", genHash("sha1", videoId)),
+
+    // Try mixed
+    md5_sha1: genHash("md5", genHash("sha1", videoId)),
+    sha1_md5: genHash("sha1", genHash("md5", videoId)),
+
+    // Try with static salts (just guesses)
+    md5_salt1: genHash("md5", "gifted" + videoId),
+    md5_salt2: genHash("md5", videoId + "gifted"),
+    sha1_salt1: genHash("sha1", "gifted" + videoId),
+    sha1_salt2: genHash("sha1", videoId + "gifted"),
+  };
+
+  res.json({
+    videoId,
+    attempts,
+    exampleUrls: Object.fromEntries(
+      Object.entries(attempts).map(([k, v]) => [k, `https://dl.ymcdn.org/${v}/${videoId}`])
+    ),
+  });
 });
 
-/**
- * ROUTE: Get direct download link
- * Example: /api/download?id=60ItHLz5WEA
- */
-app.get("/api/download", async (req, res) => {
-  const videoId = req.query.id;
-  if (!videoId) {
-    return res.status(400).json({ error: "Missing ?id=" });
-  }
-
-  try {
-    // 🔑 Generate hash (assuming it's md5(videoId))
-    const hash = md5(videoId);
-
-    const downloadUrl = `https://dl.ymcdn.org/${hash}/${videoId}`;
-
-    res.json({
-      status: 200,
-      videoId,
-      hash,
-      download_url: downloadUrl,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Start server
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ API running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
