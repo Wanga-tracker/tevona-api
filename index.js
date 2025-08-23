@@ -1,76 +1,73 @@
-// index.js
 const express = require("express");
-const axios = require("axios");
 const cors = require("cors");
+const ytSearch = require("yt-search");
+const crypto = require("crypto");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Your YouTube API key (replace or keep fallback)
-const YT_API_KEY =
-  process.env.YT_API_KEY ||
-  "AIzaSyDzNRcpZV82LPaHjRabNeZ26JqfiDiqY50";
-
 app.use(cors());
 
-// ==========================
-// Search Route
-// ==========================
-app.get("/api/youtube/search", async (req, res) => {
+// ✅ Helper: make md5 hash
+function md5(str) {
+  return crypto.createHash("md5").update(str).digest("hex");
+}
+
+/**
+ * ROUTE: Search YouTube videos
+ * Example: /api/search?q=alan+walker
+ */
+app.get("/api/search", async (req, res) => {
   const q = req.query.q;
-  if (!q) return res.status(400).json({ error: "Missing query ?q=" });
+  if (!q) {
+    return res.status(400).json({ error: "Missing ?q=" });
+  }
 
   try {
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(
-      q
-    )}&maxResults=10&key=${YT_API_KEY}`;
+    const result = await ytSearch(q);
+    const videos = result.videos.slice(0, 10).map((v) => ({
+      id: v.videoId,
+      title: v.title,
+      duration: v.timestamp,
+      views: v.views,
+      channel: v.author?.name,
+      thumbnail: v.thumbnail,
+      url: `https://www.youtube.com/watch?v=${v.videoId}`,
+    }));
 
-    const { data } = await axios.get(url);
+    res.json({ status: 200, result: videos });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    return res.json({
+/**
+ * ROUTE: Get direct download link
+ * Example: /api/download?id=60ItHLz5WEA
+ */
+app.get("/api/download", async (req, res) => {
+  const videoId = req.query.id;
+  if (!videoId) {
+    return res.status(400).json({ error: "Missing ?id=" });
+  }
+
+  try {
+    // 🔑 Generate hash (assuming it's md5(videoId))
+    const hash = md5(videoId);
+
+    const downloadUrl = `https://dl.ymcdn.org/${hash}/${videoId}`;
+
+    res.json({
       status: 200,
-      results: data.items.map((item) => ({
-        id: item.id.videoId,
-        title: item.snippet.title,
-        channel: item.snippet.channelTitle,
-        publishedAt: item.snippet.publishedAt,
-        thumbnail: item.snippet.thumbnails?.high?.url,
-        url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-      })),
+      videoId,
+      hash,
+      download_url: downloadUrl,
     });
   } catch (err) {
-    console.error(err.message);
-    return res.status(500).json({ error: "Search failed" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ==========================
-// Download Route
-// ==========================
-app.get("/api/youtube/download", async (req, res) => {
-  const id = req.query.id;
-  if (!id) return res.status(400).json({ error: "Missing video id ?id=" });
-
-  try {
-    // 🔹 Replace with the actual API you confirmed gives download_url
-    const apiUrl = `https://gifted-api.example.com/youtube?url=https://www.youtube.com/watch?v=${id}`;
-    const { data } = await axios.get(apiUrl);
-
-    if (!data?.result?.download_url) {
-      return res.status(500).json({ error: "No download URL found" });
-    }
-
-    // Redirect client directly to download
-    return res.redirect(data.result.download_url);
-  } catch (err) {
-    console.error(err.message);
-    return res.status(500).json({ error: "Download failed" });
-  }
-});
-
-// ==========================
 // Start server
-// ==========================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Tevona API running on http://localhost:${PORT}`);
+  console.log(`✅ API running on http://localhost:${PORT}`);
 });
