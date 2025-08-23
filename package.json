@@ -18,7 +18,7 @@
     "node-id3": "0.2.0",
     "ytdl-core": "4.11.0",
     "youtube-yts": "2.1.5",
-    "node-youtube-music": "github:play-dl/node-youtube-music"
+    "node-youtube-music": "0.8.3"
   },
   "engines": {
     "node": "20.x"
