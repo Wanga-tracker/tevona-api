@@ -1,7 +1,7 @@
 {
-  "name": "tevona-api",
+  "name": "yt-downloader-backend",
   "version": "1.0.0",
-  "description": "YouTube search and downloader backend API",
+  "description": "YouTube music downloader / search (ytdl-core + ffmpeg-static + id3)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -11,14 +11,19 @@
     "axios": "^1.7.4",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "yt-search": "^2.10.4"
+    "ffmpeg-static": "^5.1.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "mkdirp": "^3.0.1",
+    "node-id3": "^0.2.0",
+    "node-youtube-music": "^1.1.1",
+    "ytdl-core": "^4.11.0",
+    "youtube-yts": "^2.1.5",
+    "morgan": "^1.10.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
   },
   "engines": {
     "node": ">=18 <=20"
-  },
-  "author": "Wanga",
-  "license": "MIT"
+  }
 }
