@@ -1,53 +1,69 @@
 // index.js
 const express = require("express");
+const axios = require("axios");
 const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Utility to hash
-function genHash(algorithm, input) {
-  return crypto.createHash(algorithm).update(input).digest("hex");
+// Generate different hash attempts
+function generateHashes(videoId) {
+  const hashes = {};
+  hashes.md5_id = crypto.createHash("md5").update(videoId).digest("hex");
+  hashes.sha1_id = crypto.createHash("sha1").update(videoId).digest("hex");
+  hashes.sha256_id = crypto.createHash("sha256").update(videoId).digest("hex");
+  hashes.md5_rev = crypto.createHash("md5").update(videoId.split("").reverse().join("")).digest("hex");
+  hashes.sha1_rev = crypto.createHash("sha1").update(videoId.split("").reverse().join("")).digest("hex");
+  hashes.sha256_rev = crypto.createHash("sha256").update(videoId.split("").reverse().join("")).digest("hex");
+  return hashes;
 }
 
-app.get("/api/test-hash/:videoId", (req, res) => {
-  const videoId = req.params.videoId;
+// Route to generate possible download links
+app.get("/api/youtube/crack", (req, res) => {
+  const videoId = req.query.id;
+  if (!videoId) {
+    return res.status(400).json({ error: "Missing videoId ?id=" });
+  }
 
-  // Try different combinations
-  const attempts = {
-    md5_id: genHash("md5", videoId),
-    sha1_id: genHash("sha1", videoId),
-    sha256_id: genHash("sha256", videoId),
+  const attempts = generateHashes(videoId);
 
-    // Try reversing videoId
-    md5_rev: genHash("md5", videoId.split("").reverse().join("")),
-    sha1_rev: genHash("sha1", videoId.split("").reverse().join("")),
-    sha256_rev: genHash("sha256", videoId.split("").reverse().join("")),
+  const exampleUrls = {};
+  for (const [key, hash] of Object.entries(attempts)) {
+    exampleUrls[key] = `https://dl.ymcdn.org/${hash}/${videoId}`;
+  }
 
-    // Try double-hash
-    md5_md5: genHash("md5", genHash("md5", videoId)),
-    sha1_sha1: genHash("sha1", genHash("sha1", videoId)),
+  res.json({ videoId, attempts, exampleUrls });
+});
 
-    // Try mixed
-    md5_sha1: genHash("md5", genHash("sha1", videoId)),
-    sha1_md5: genHash("sha1", genHash("md5", videoId)),
+// Route to test direct download with headers
+app.get("/api/youtube/download", async (req, res) => {
+  const videoId = req.query.id;
+  if (!videoId) {
+    return res.status(400).json({ error: "Missing videoId ?id=" });
+  }
 
-    // Try with static salts (just guesses)
-    md5_salt1: genHash("md5", "gifted" + videoId),
-    md5_salt2: genHash("md5", videoId + "gifted"),
-    sha1_salt1: genHash("sha1", "gifted" + videoId),
-    sha1_salt2: genHash("sha1", videoId + "gifted"),
-  };
+  const hash = crypto.createHash("md5").update(videoId).digest("hex"); // try MD5 first
+  const url = `https://dl.ymcdn.org/${hash}/${videoId}`;
 
-  res.json({
-    videoId,
-    attempts,
-    exampleUrls: Object.fromEntries(
-      Object.entries(attempts).map(([k, v]) => [k, `https://dl.ymcdn.org/${v}/${videoId}`])
-    ),
-  });
+  try {
+    const response = await axios.get(url, {
+      responseType: "stream",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+        "Accept": "*/*",
+        "Referer": "https://youtube.com/",
+      },
+    });
+
+    res.setHeader("Content-Disposition", `attachment; filename="${videoId}.mp3"`);
+    res.setHeader("Content-Type", response.headers["content-type"] || "audio/mpeg");
+
+    response.data.pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: "Download failed", details: err.message, url });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });
