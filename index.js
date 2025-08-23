@@ -1,12 +1,11 @@
-// index.js
-import express from "express";
-import axios from "axios";
-import cors from "cors";
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
 
 const app = express();
 app.use(cors());
 
-// ✅ test YouTube search (already working)
+// ✅ YouTube search
 app.get("/api/youtube/search", async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: "Missing query ?q=" });
@@ -33,7 +32,7 @@ app.get("/api/youtube/search", async (req, res) => {
   }
 });
 
-// ✅ NEW: YouTube download route using fabdl.com
+// ✅ YouTube download via fabdl.com
 app.get("/api/youtube/download", async (req, res) => {
   const id = req.query.id;
   if (!id) return res.status(400).json({ error: "Missing id ?id=" });
@@ -46,7 +45,7 @@ app.get("/api/youtube/download", async (req, res) => {
       return res.status(500).json({ error: "No audio found", raw: data });
     }
 
-    // redirect user to the fresh audio_url
+    // redirect to actual audio file
     res.redirect(data.result.audio_url);
   } catch (err) {
     res.status(500).json({ error: err.message });
