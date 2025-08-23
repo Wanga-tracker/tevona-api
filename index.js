@@ -1,69 +1,126 @@
 // index.js
+require("dotenv").config();
 const express = require("express");
-const axios = require("axios");
-const crypto = require("crypto");
+const cors = require("cors");
+const morgan = require("morgan");
+const path = require("path");
+const fs = require("fs");
+const mkdirp = require("mkdirp");
+const YT = require("./lib/YT");
+const { pipeline } = require("stream");
+const util = require("util");
+const streamPipeline = util.promisify(pipeline);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.use(cors());
+app.use(express.json());
+app.use(morgan("dev"));
 
-// Generate different hash attempts
-function generateHashes(videoId) {
-  const hashes = {};
-  hashes.md5_id = crypto.createHash("md5").update(videoId).digest("hex");
-  hashes.sha1_id = crypto.createHash("sha1").update(videoId).digest("hex");
-  hashes.sha256_id = crypto.createHash("sha256").update(videoId).digest("hex");
-  hashes.md5_rev = crypto.createHash("md5").update(videoId.split("").reverse().join("")).digest("hex");
-  hashes.sha1_rev = crypto.createHash("sha1").update(videoId.split("").reverse().join("")).digest("hex");
-  hashes.sha256_rev = crypto.createHash("sha256").update(videoId.split("").reverse().join("")).digest("hex");
-  return hashes;
-}
+const PORT = process.env.PORT || 10000;
 
-// Route to generate possible download links
-app.get("/api/youtube/crack", (req, res) => {
-  const videoId = req.query.id;
-  if (!videoId) {
-    return res.status(400).json({ error: "Missing videoId ?id=" });
-  }
+// Ensure output directory
+const MEDIA_DIR = path.join(__dirname, "GlobalMedia", "audio");
+mkdirp.sync(MEDIA_DIR);
 
-  const attempts = generateHashes(videoId);
+// --- routes ---
 
-  const exampleUrls = {};
-  for (const [key, hash] of Object.entries(attempts)) {
-    exampleUrls[key] = `https://dl.ymcdn.org/${hash}/${videoId}`;
-  }
-
-  res.json({ videoId, attempts, exampleUrls });
+// health
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "Tevona downloader API running" });
 });
 
-// Route to test direct download with headers
-app.get("/api/youtube/download", async (req, res) => {
-  const videoId = req.query.id;
-  if (!videoId) {
-    return res.status(400).json({ error: "Missing videoId ?id=" });
+// Search (YouTube Music first, fallback to YT search)
+app.get("/api/search", async (req, res) => {
+  const q = (req.query.q || "").toString().trim();
+  if (!q) return res.status(400).json({ error: "Missing ?q= query" });
+  try {
+    const results = await YT.searchTrack(q); // returns array of track objects
+    return res.json({ status: 200, result: results });
+  } catch (err) {
+    console.error("search error:", err);
+    // fallback to simple yts search
+    try {
+      const raw = await YT.search(q);
+      return res.json({ status: 200, result: raw });
+    } catch (e) {
+      console.error("fallback search error:", e);
+      return res.status(500).json({ error: "Search failed", details: String(e) });
+    }
   }
+});
 
-  const hash = crypto.createHash("md5").update(videoId).digest("hex"); // try MD5 first
-  const url = `https://dl.ymcdn.org/${hash}/${videoId}`;
+// Download — converts to mp3, returns as attachment, deletes file after stream
+// usage: /api/download?url=<youtube-url>&filename=some.mp3
+app.get("/api/download", async (req, res) => {
+  const url = (req.query.url || "").toString();
+  if (!url) return res.status(400).json({ error: "Missing url param" });
 
   try {
-    const response = await axios.get(url, {
-      responseType: "stream",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-        "Accept": "*/*",
-        "Referer": "https://youtube.com/",
-      },
+    // We'll use YT.mp3 which returns { meta, path, size }
+    const fileResult = await YT.mp3(url, {}, true); // auto write tags
+    const filePath = fileResult.path;
+    const outName = (req.query.filename || `${fileResult.meta.title || "track"}.mp3`).replace(/[^\w.\- ]+/g, "_");
+
+    res.setHeader("Content-Disposition", `attachment; filename="${outName}"`);
+    res.setHeader("Content-Type", "audio/mpeg");
+
+    // Stream file to client
+    const readStream = fs.createReadStream(filePath);
+    readStream.on("error", (err) => {
+      console.error("readstream error:", err);
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      res.status(500).end("Read error");
     });
 
-    res.setHeader("Content-Disposition", `attachment; filename="${videoId}.mp3"`);
-    res.setHeader("Content-Type", response.headers["content-type"] || "audio/mpeg");
+    // When finished, remove file
+    readStream.on("end", () => {
+      try { fs.unlinkSync(filePath); } catch (_) {}
+    });
 
-    response.data.pipe(res);
+    readStream.pipe(res);
   } catch (err) {
-    res.status(500).json({ error: "Download failed", details: err.message, url });
+    console.error("download error:", err);
+    return res.status(500).json({ error: "Download failed", details: String(err) });
   }
+});
+
+// Stream without saving — pipes converted mp3 to response
+// usage: /api/stream?url=<youtube-url>
+app.get("/api/stream", async (req, res) => {
+  const url = (req.query.url || "").toString();
+  if (!url) return res.status(400).json({ error: "Missing url param" });
+
+  try {
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store");
+
+    // YT.streamMp3 returns a stream (we'll add that helper in lib/YT)
+    const audioStream = await YT.streamMp3(url);
+    await streamPipeline(audioStream, res);
+  } catch (err) {
+    console.error("stream error:", err);
+    return res.status(500).json({ error: "Stream failed", details: String(err) });
+  }
+});
+
+// small test route for metadata
+app.get("/api/info", async (req, res) => {
+  const url = (req.query.url || "").toString();
+  if (!url) return res.status(400).json({ error: "Missing url param" });
+  try {
+    const info = await YT.mp4(url, 134);
+    return res.json({ status: 200, result: info });
+  } catch (err) {
+    console.error("info error:", err);
+    return res.status(500).json({ error: "Info failed", details: String(err) });
+  }
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Tevona downloader running on http://localhost:${PORT}`);
 });
