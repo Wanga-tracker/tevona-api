@@ -1,9 +1,9 @@
 const express = require("express");
-const { exec } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const cors = require("cors");
 const morgan = require("morgan");
+const ytdlp = require("yt-dlp-exec"); // ✅ Node wrapper
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,27 +28,22 @@ app.get("/ytdown", async (req, res) => {
     const filename = `video_${Date.now()}.mp4`;
     const filepath = path.join(FILES_DIR, filename);
 
-    // Run yt-dlp
-    const cmd = `yt-dlp -f mp4 -o "${filepath}" "${videoUrl}"`;
-    console.log("Running:", cmd);
+    console.log("Downloading:", videoUrl);
 
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        console.error("yt-dlp error:", stderr);
-        return res.status(500).json({ error: "Download failed", details: stderr });
-      }
+    // Run yt-dlp (directly via Node wrapper)
+    await ytdlp(videoUrl, {
+      output: filepath,
+      format: "mp4"
+    });
 
-      console.log("yt-dlp output:", stdout);
-
-      const downloadUrl = `${req.protocol}://${req.get("host")}/files/${filename}`;
-      res.json({
-        title: "Downloaded video",
-        download_url: downloadUrl
-      });
+    const downloadUrl = `${req.protocol}://${req.get("host")}/files/${filename}`;
+    res.json({
+      title: "Downloaded video",
+      download_url: downloadUrl
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("yt-dlp error:", err);
+    res.status(500).json({ error: "Download failed", details: err.message });
   }
 });
 
