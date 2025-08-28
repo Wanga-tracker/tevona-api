@@ -1,68 +1,62 @@
-// index.js
-require("dotenv").config();
 const express = require("express");
+const { exec } = require("child_process");
+const path = require("path");
+const fs = require("fs");
 const cors = require("cors");
 const morgan = require("morgan");
-const ytdl = require("ytdl-core");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(cors());
-app.use(express.json());
 app.use(morgan("dev"));
+app.use(express.json());
 
-const PORT = process.env.PORT || 10000;
+const FILES_DIR = path.join(__dirname, "files");
+if (!fs.existsSync(FILES_DIR)) {
+  fs.mkdirSync(FILES_DIR);
+}
 
-// health
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Tevona downloader API running" });
-});
-
-// --- SEARCH (keep same as before if using YT.js) ---
-const YT = require("./lib/YT");
-app.get("/api/search", async (req, res) => {
-  const q = (req.query.q || "").toString().trim();
-  if (!q) return res.status(400).json({ error: "Missing ?q= query" });
-  try {
-    const results = await YT.searchTrack(q);
-    return res.json({ status: 200, result: results });
-  } catch (err) {
-    console.error("search error:", err);
-    try {
-      const raw = await YT.search(q);
-      return res.json({ status: 200, result: raw });
-    } catch (e) {
-      console.error("fallback search error:", e);
-      return res.status(500).json({ error: "Search failed", details: String(e) });
-    }
+// --- Download route ---
+app.get("/ytdown", async (req, res) => {
+  const videoUrl = req.query.url;
+  if (!videoUrl) {
+    return res.status(400).json({ error: "Missing ?url=" });
   }
-});
-
-// --- DOWNLOAD (direct .m4a, no ffmpeg) ---
-app.get("/api/download", async (req, res) => {
-  const url = (req.query.url || "").toString();
-  if (!url) return res.status(400).json({ error: "Missing url param" });
 
   try {
-    const info = await ytdl.getInfo(url);
-    const title = info.videoDetails.title.replace(/[^\w\s-]/g, "_");
-    const filename = `${title}.m4a`;
+    const filename = `video_${Date.now()}.mp4`;
+    const filepath = path.join(FILES_DIR, filename);
 
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.setHeader("Content-Type", "audio/mp4");
+    // Run yt-dlp
+    const cmd = `yt-dlp -f mp4 -o "${filepath}" "${videoUrl}"`;
+    console.log("Running:", cmd);
 
-    const stream = ytdl(url, { filter: "audioonly", quality: "highestaudio" });
-    stream.pipe(res);
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error("yt-dlp error:", stderr);
+        return res.status(500).json({ error: "Download failed", details: stderr });
+      }
 
-    stream.on("error", (err) => {
-      console.error("ytdl error:", err);
-      res.status(500).end("Download failed");
+      console.log("yt-dlp output:", stdout);
+
+      const downloadUrl = `${req.protocol}://${req.get("host")}/files/${filename}`;
+      res.json({
+        title: "Downloaded video",
+        download_url: downloadUrl
+      });
     });
   } catch (err) {
-    console.error("download error:", err);
-    res.status(500).json({ error: "Download failed", details: String(err) });
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Tevona downloader running on http://localhost:${PORT}`);
+// --- Serve files ---
+app.use("/files", express.static(FILES_DIR));
+
+app.get("/", (req, res) => {
+  res.send("✅ Tevona API is running. Use /ytdown?url=YOUTUBE_LINK");
 });
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
