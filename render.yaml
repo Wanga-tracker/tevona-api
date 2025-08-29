@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ytmp4-downloader
+    env: node
+    plan: free
+    buildCommand: |
+      apt-get update && apt-get install -y chromium
+      npm install
+    startCommand: npm start
+    envVars:
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium
